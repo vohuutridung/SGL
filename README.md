@@ -145,7 +145,7 @@ accelerate launch --num_processes 8 -m sgl.evaluation \
   --model-name-or-path checkpoints/qwen3-4b-sgl \
   --output-dir outputs/qwen3-4b-sgl \
   --benchmarks gsm8k math500 aime24 aime25 \
-  --num-generations 4 \
+  --num-generations 32 \
   --temperature 0.6 \
   --top-p 0.95 \
   --max-new-tokens 32768
