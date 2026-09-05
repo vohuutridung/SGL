@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spectral-guided-learning"
+version = "0.1.0"
+description = "A paper-faithful implementation of Spectral-guided Learning for long-CoT distillation"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+dependencies = [
+  "accelerate==1.13.0",
+  "datasets==4.8.4",
+  "math-verify==0.9.0",
+  "numpy>=1.26",
+  "torch>=2.4",
+  "transformers==5.4.0",
+]
+
+[project.optional-dependencies]
+train = ["deepspeed>=0.15"]
+dev = [
+  "pytest>=8.3",
+  "ruff>=0.9",
+]
+
+[project.scripts]
+sgl-build-masks = "sgl.build_masks:main"
+sgl-train = "sgl.training:main"
+sgl-evaluate = "sgl.evaluation:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

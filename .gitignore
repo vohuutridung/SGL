@@ -216,3 +216,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Spectral-guided Learning artifacts
+artifacts/
+checkpoints/
+outputs/
+wandb/
+runs/
