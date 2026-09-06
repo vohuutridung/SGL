@@ -327,7 +327,7 @@ def run(args: argparse.Namespace) -> None:
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     )
     accelerator = Accelerator()
-    set_seed(args.sample_seed, device_specific=False)
+    set_seed(args.sample_seed)
     resolved_model_revision, resolved_dataset_revision = _resolve_run_revisions(args)
     run_config = _requested_config(
         args,

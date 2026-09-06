@@ -6,7 +6,7 @@ import importlib.metadata
 import json
 import logging
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -283,7 +283,7 @@ def _generate_responses(
         add_generation_prompt=True,
         return_tensors="pt",
     )
-    if isinstance(encoded, dict):
+    if isinstance(encoded, Mapping):
         input_ids = encoded["input_ids"]
     else:
         input_ids = encoded
