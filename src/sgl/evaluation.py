@@ -99,7 +99,7 @@ def parse_args() -> argparse.Namespace:
         choices=sorted(BENCHMARKS),
         default=sorted(BENCHMARKS),
     )
-    parser.add_argument("--num-generations", type=int, default=32)
+    parser.add_argument("--num-generations", type=int, default=4)
     parser.add_argument("--temperature", type=float, default=0.6)
     parser.add_argument("--top-p", type=float, default=0.95)
     parser.add_argument("--max-new-tokens", type=int, default=32_768)
