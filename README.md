@@ -110,18 +110,7 @@ python -m sgl.training \
 
 ## 3. Evaluation
 
-Supported benchmarks:
-
-- GSM8K: `openai/gsm8k`, `main`, test split.
-- MATH-500: `HuggingFaceH4/MATH-500`, test split.
-- AIME 2024: `HuggingFaceH4/aime_2024`, train split containing all 30 tasks.
-- AIME 2025: `yentinglin/aime_2025`, train split containing all 30 tasks.
-
-All four benchmark repositories are pinned to the revisions recorded in
-`src/sgl/evaluation.py`.
-
-The evaluator reuses the training dataset's system prompt and the checkpoint's native chat template. It samples with temperature
-0.6, top-p 0.95, and up to 32,768 new tokens.
+Supported benchmarks: GSM8K (`openai/gsm8k`), MATH-500 (`HuggingFaceH4/MATH-500`), AIME 2024 (`HuggingFaceH4/aime_2024`), AIME 2025 (`yentinglin/aime_2025`).
 
 On eight GPUs:
 
@@ -149,9 +138,7 @@ python -m sgl.evaluation \
   --max-new-tokens 32768
 ```
 
-Generation stops on either the model EOS token or the native assistant end-of-turn token (for Qwen, `<|im_end|>`), and the requested new-token budget is capped so prompt plus completion cannot exceed the model context window.
-
-Scoring uses Hugging Face `math-verify` 0.9 conventions:
+Scoring uses HuggingFace `math-verify` 0.9 conventions:
 
 - expression extraction for GSM8K and AIME gold answers;
 - LaTeX extraction for MATH-500 gold answers;
@@ -160,23 +147,5 @@ Scoring uses Hugging Face `math-verify` 0.9 conventions:
 Reported accuracy is mean pass@1 over K independent generations:
 
 ```text
-sum(correct generation indicators) / (problems * 4)
+sum(correct generation indicators) / (problems * K)
 ```
-
-## Tests
-
-```bash
-pytest
-```
-
-Tests cover:
-
-- `\n\n` ownership and final-answer boundaries;
-- chat-template token alignment, right padding, and mandatory EOS/final masks;
-- causal hidden/target shift;
-- exact rank selection and stable tie order;
-- leverage score versus projection-energy behavior;
-- per-sample rather than flattened-token loss normalization;
-- direct zero gradient at masked local-loss positions;
-- distributed mask-shard merging;
-- numeric and LaTeX benchmark grading.
