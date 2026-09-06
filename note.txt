@@ -1,0 +1,25 @@
+- Smoke test (run A100 40GB)
+python -m pip install -e ".[dev]"
+
+python -m sgl.build_masks \
+  --model-name-or-path Qwen/Qwen3-0.6B-Base \
+  --output-dir artifacts/qwen3-0.6b-smoke \
+  --max-samples 32 \
+  --max-length 4096 \
+  --svd-device cuda \
+  --dtype bfloat16
+
+python -m sgl.training \
+  --mask-dir artifacts/qwen3-0.6b-smoke \
+  --output-dir checkpoints/qwen3-0.6b-smoke \
+  --global-batch-size 4 \
+  --per-device-train-batch-size 1 \
+  --num-train-epochs 1
+
+python -m sgl.evaluation \
+  --model-name-or-path checkpoints/qwen3-0.6b-smoke \
+  --output-dir outputs/qwen3-0.6b-smoke \
+  --benchmarks gsm8k \
+  --limit 8 \
+  --num-generations 2 \
+  --max-new-tokens 512
