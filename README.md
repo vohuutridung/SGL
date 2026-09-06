@@ -94,14 +94,14 @@ torchrun --nproc_per_node 8 -m sgl.training \
   --deepspeed configs/deepspeed_zero3.json
 ```
 
-On a single GPU, omit DeepSpeed. Gradient accumulation becomes 32 to keep the same global batch size:
+On a single GPU, run this. You can reduce per-device-train-batch-size if OOM:
 
 ```bash
 python -m sgl.training \
   --mask-dir artifacts/qwen3-4b \
   --output-dir checkpoints/qwen3-4b-sgl \
   --global-batch-size 32 \
-  --per-device-train-batch-size 1 \
+  --per-device-train-batch-size 32 \
   --num-train-epochs 6 \
   --learning-rate 5e-5 \
   --min-learning-rate 1e-5 \
