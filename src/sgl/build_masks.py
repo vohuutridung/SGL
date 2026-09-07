@@ -18,6 +18,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, set_seed
 
 from sgl.artifacts import (
     MANIFEST_FILENAME,
+    SCHEMA_VERSION,
     MaskRecord,
     append_jsonl,
     atomic_write_json,
@@ -29,10 +30,19 @@ from sgl.artifacts import (
     utc_now_iso,
 )
 from sgl.data import (
+    ANSWER_FIELD,
+    ANSWER_LABEL,
+    ANSWER_PREFIX,
+    DATASET_FORMAT,
     DEFAULT_DATASET,
     DEFAULT_DATASET_REVISION,
     DEFAULT_MAX_LENGTH,
+    DEFAULT_MAX_SAMPLES,
     DEFAULT_SPLIT,
+    DEFAULT_SYSTEM_PROMPT,
+    QUESTION_FIELD,
+    REASONING_FIELD,
+    THINK_PREFIX,
     SampleFormatError,
     prepare_sample,
 )
@@ -57,13 +67,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--max-samples",
         type=int,
-        default=10_000,
-        help="Paper-compatible default. Use 0 to process all rows.",
+        default=DEFAULT_MAX_SAMPLES,
+        help="Process all 1,000 s1K-1.1 rows by default. Use 0 to process all rows.",
     )
     parser.add_argument("--sample-seed", type=int, default=42)
     parser.add_argument("--max-length", type=int, default=DEFAULT_MAX_LENGTH)
     parser.add_argument("--separator", default="\n\n")
-    parser.add_argument("--final-marker", default="</think>")
     parser.add_argument("--rank-threshold", type=float, default=0.95)
     parser.add_argument("--selection-threshold", type=float, default=0.8)
     parser.add_argument("--lm-head-chunk-size", type=int, default=256)
@@ -153,7 +162,7 @@ def _requested_config(
     resolved_dataset_revision: str | None,
 ) -> dict[str, Any]:
     return {
-        "schema_version": 1,
+        "schema_version": SCHEMA_VERSION,
         "model_name_or_path": args.model_name_or_path,
         "model_revision": args.model_revision,
         "resolved_model_revision": resolved_model_revision,
@@ -162,11 +171,21 @@ def _requested_config(
         "dataset_revision": args.dataset_revision,
         "resolved_dataset_revision": resolved_dataset_revision,
         "split": args.split,
+        "dataset_format": DATASET_FORMAT,
+        "dataset_fields": {
+            "question": QUESTION_FIELD,
+            "reasoning": REASONING_FIELD,
+            "answer": ANSWER_FIELD,
+        },
+        "system_prompt": DEFAULT_SYSTEM_PROMPT,
+        "thinking_prefix": THINK_PREFIX,
+        "answer_prefix": ANSWER_PREFIX,
+        "answer_label": ANSWER_LABEL,
+        "answer_label_policy": "prefix_if_missing",
         "max_samples": args.max_samples,
         "sample_seed": args.sample_seed,
         "max_length": args.max_length,
         "separator": args.separator,
-        "final_marker": args.final_marker,
         "rank_threshold": args.rank_threshold,
         "selection_threshold": args.selection_threshold,
         "lm_head_chunk_size": args.lm_head_chunk_size,
@@ -278,8 +297,6 @@ def _prepare_source_indices(
                     tokenizer,
                     max_length=args.max_length,
                     separator=args.separator,
-                    final_marker=args.final_marker,
-                    require_final_answer=True,
                 )
             except SampleFormatError as error:
                 errors.append({"source_index": source_index, "error": str(error)})
@@ -376,8 +393,6 @@ def run(args: argparse.Namespace) -> None:
                 tokenizer,
                 max_length=args.max_length,
                 separator=args.separator,
-                final_marker=args.final_marker,
-                require_final_answer=True,
             )
             gradients, step_ids = capture_reasoning_gradient_matrix(
                 model,

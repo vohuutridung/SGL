@@ -3,10 +3,16 @@ from __future__ import annotations
 import pytest
 
 from sgl.data import (
+    ANSWER_PREFIX,
+    DEFAULT_SYSTEM_PROMPT,
     IGNORE_INDEX,
+    THINK_PREFIX,
     OverlengthSampleError,
+    SampleFormatError,
     SpectralDataCollator,
+    format_s1k_example,
     native_assistant_end_token_id,
+    normalize_final_answer,
     positions_to_ranges,
     prepare_sample,
     split_reasoning_steps,
@@ -66,28 +72,75 @@ class FakeTokenizer:
 
 def sample_row():
     return {
-        "prompt": [
-            {"role": "system", "content": "Reason carefully."},
-            {"role": "user", "content": "What is 1+1?"},
-        ],
-        "target": [
-            {
-                "role": "assistant",
-                "content": "<think>\nfirst\n\nsecond</think>\n\nThe answer is \\boxed{2}.",
-            }
-        ],
+        "question": "What is 1+1?",
+        "deepseek_thinking_trajectory": "first\n\nsecond\n",
+        "deepseek_attempt": "The answer is \\boxed{2}.",
     }
 
 
 def test_split_assigns_separator_to_previous_step():
-    content = "<think>\nfirst\n\nsecond</think>\n\nfinal"
+    content = "first\n\nsecond"
     parsed = split_reasoning_steps(content)
 
-    assert len(parsed.reasoning_steps) == 2
-    first, second = parsed.reasoning_steps
-    assert content[first.start : first.end] == "<think>\nfirst\n\n"
-    assert content[second.start : second.end] == "second</think>\n\n"
-    assert content[parsed.final_start : parsed.final_end] == "final"
+    assert len(parsed) == 2
+    first, second = parsed
+    assert content[first.start : first.end] == "first\n\n"
+    assert content[second.start : second.end] == "second"
+
+
+def test_split_coalesces_consecutive_separators_into_previous_step():
+    content = "first\n\n\n\nsecond"
+    first, second = split_reasoning_steps(content)
+    assert content[first.start : first.end] == "first\n\n\n\n"
+    assert content[second.start : second.end] == "second"
+
+
+def test_s1k_formatter_matches_official_qwen_recipe():
+    prompt, target, parsed = format_s1k_example(sample_row())
+
+    assert prompt == [
+        {"role": "system", "content": DEFAULT_SYSTEM_PROMPT},
+        {"role": "user", "content": "What is 1+1?"},
+    ]
+    assert target == {
+        "role": "assistant",
+        "content": (
+            f"{THINK_PREFIX}first\n\nsecond"
+            f"{ANSWER_PREFIX}Answer: The answer is \\boxed{{2}}."
+        ),
+    }
+    first = parsed.reasoning_steps[0]
+    assert target["content"][first.start : first.end] == f"{THINK_PREFIX}first\n\n"
+    assert target["content"][parsed.final_start :] == (
+        f"{ANSWER_PREFIX}Answer: The answer is \\boxed{{2}}."
+    )
+
+
+def test_final_answer_prefix_is_not_duplicated():
+    assert normalize_final_answer("Already says Answer: 2") == "Already says Answer: 2"
+    assert normalize_final_answer("Final is 2") == "Answer: Final is 2"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("question", None),
+        ("deepseek_thinking_trajectory", ["not", "a", "string"]),
+        ("deepseek_attempt", "  "),
+    ],
+)
+def test_s1k_formatter_rejects_invalid_required_fields(field, value):
+    row = sample_row()
+    row[field] = value
+    with pytest.raises(SampleFormatError, match=field):
+        format_s1k_example(row)
+
+
+def test_s1k_formatter_rejects_missing_required_field():
+    row = sample_row()
+    del row["deepseek_attempt"]
+    with pytest.raises(SampleFormatError, match="deepseek_attempt"):
+        format_s1k_example(row)
 
 
 def test_prepare_sample_masks_prompt_and_always_trains_final_and_eos():
@@ -124,21 +177,11 @@ def test_overlength_sample_is_rejected_if_final_answer_would_be_lost():
 def test_truncation_keeps_maximal_step_prefix_and_complete_final_answer():
     tokenizer = FakeTokenizer()
     row = {
-        "prompt": [{"role": "user", "content": "Q"}],
-        "target": [
-            {
-                "role": "assistant",
-                "content": (
-                    "<think>\n"
-                    + "a" * 20
-                    + "\n\n"
-                    + "b" * 20
-                    + "\n\n"
-                    + "c" * 20
-                    + "</think>\n\nFINAL"
-                ),
-            }
-        ],
+        "question": "Q",
+        "deepseek_thinking_trajectory": (
+            "a" * 20 + "\n\n" + "b" * 20 + "\n\n" + "c" * 20
+        ),
+        "deepseek_attempt": "FINAL",
     }
     full = prepare_sample(row, tokenizer, max_length=1_000)
     truncated = prepare_sample(row, tokenizer, max_length=len(full.input_ids) - 10)
@@ -146,7 +189,11 @@ def test_truncation_keeps_maximal_step_prefix_and_complete_final_answer():
     assert truncated.truncated
     assert len(truncated.input_ids) <= len(full.input_ids) - 10
     assert len(truncated.step_token_positions) == 2
-    assert len(truncated.final_answer_positions) == len("FINAL")
+    final_text = "".join(
+        chr(truncated.input_ids[position] - 10)
+        for position in truncated.final_answer_positions
+    )
+    assert final_text == f"{ANSWER_PREFIX}Answer: FINAL"
     assert len(truncated.eos_positions) == 1
 
 

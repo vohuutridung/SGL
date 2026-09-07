@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 MANIFEST_FILENAME = "manifest.json"
 MASKS_FILENAME = "masks.jsonl"
 SHARDS_DIRNAME = "shards"

@@ -15,9 +15,27 @@ This repository implements the primary method only:
 7. Full SFT on the complete sequence while masking the local losses of
    unselected reasoning steps.
 
+## Training data format
+
+Training uses all 1,000 rows from `simplescaling/s1K-1.1` at the pinned
+revision recorded in the mask manifest. Each raw row is mapped as follows:
+
+- `question` becomes the user message.
+- `deepseek_thinking_trajectory` becomes the reasoning trajectory and is split
+  into steps at blank lines (`\n\n`).
+- `deepseek_attempt` becomes the final answer. It is prefixed with `Answer: `
+  when that label is absent.
+
+The formatter adds the Qwen system prompt and wraps the two assistant regions
+with `<|im_start|>think` and `<|im_start|>answer` before applying the model's
+native chat template. These tags are not expected in the raw dataset. Only
+reasoning steps participate in spectral selection; the answer delimiter,
+complete final answer, and native assistant end-of-turn token are always
+supervised.
+
 ## Installation
 
-Python 3.10 or newer is required. `transformers==5.4.0` and `accelerate==1 13.0` are pinned.
+Python 3.10 or newer is required. `transformers==5.4.0` and `accelerate==1.13.0` are pinned.
 
 ```bash
 python -m pip install -e ".[dev]"
@@ -35,9 +53,9 @@ Each process owns complete samples; no sample or SVD is split across ranks. The 
 
 ```bash
 accelerate launch --num_processes 8 -m sgl.build_masks \
-  --model-name-or-path Qwen/Qwen3-4B-Base \
-  --output-dir artifacts/qwen3-4b \
-  --max-samples 10000 \
+  --model-name-or-path Qwen/Qwen2.5-7B-Instruct \
+  --output-dir artifacts/qwen2.5-7b \
+  --max-samples 1000 \
   --rank-threshold 0.95 \
   --selection-threshold 0.8 \
   --svd-device cuda \
@@ -51,9 +69,9 @@ if the GPU does not support BF16:
 
 ```bash
 python -m sgl.build_masks \
-  --model-name-or-path Qwen/Qwen3-4B-Base \
-  --output-dir artifacts/qwen3-4b \
-  --max-samples 10000 \
+  --model-name-or-path Qwen/Qwen2.5-7B-Instruct \
+  --output-dir artifacts/qwen2.5-7b \
+  --max-samples 1000 \
   --rank-threshold 0.95 \
   --selection-threshold 0.8 \
   --svd-device cuda \
@@ -83,8 +101,9 @@ processes and per-device batch size one, gradient accumulation is four.
 
 ```bash
 torchrun --nproc_per_node 8 -m sgl.training \
-  --mask-dir artifacts/qwen3-4b \
-  --output-dir checkpoints/qwen3-4b-sgl \
+  --mask-dir artifacts/qwen2.5-7b \
+  --output-dir checkpoints/qwen2.5-7b-sgl \
+  --model-name-or-path Qwen/Qwen2.5-7B-Instruct \
   --global-batch-size 32 \
   --per-device-train-batch-size 1 \
   --num-train-epochs 6 \
@@ -98,8 +117,9 @@ On a single GPU, run this. You can reduce per-device-train-batch-size if OOM:
 
 ```bash
 python -m sgl.training \
-  --mask-dir artifacts/qwen3-4b \
-  --output-dir checkpoints/qwen3-4b-sgl \
+  --mask-dir artifacts/qwen2.5-7b \
+  --output-dir checkpoints/qwen2.5-7b-sgl \
+  --model-name-or-path Qwen/Qwen2.5-7B-Instruct \
   --global-batch-size 32 \
   --per-device-train-batch-size 32 \
   --num-train-epochs 6 \
@@ -116,8 +136,8 @@ On eight GPUs:
 
 ```bash
 accelerate launch --num_processes 8 -m sgl.evaluation \
-  --model-name-or-path checkpoints/qwen3-4b-sgl \
-  --output-dir outputs/qwen3-4b-sgl \
+  --model-name-or-path checkpoints/qwen2.5-7b-sgl \
+  --output-dir outputs/qwen2.5-7b-sgl \
   --benchmarks gsm8k math500 aime24 aime25 \
   --num-generations 4 \
   --temperature 0.6 \
@@ -129,8 +149,8 @@ On a single GPU:
 
 ```bash
 python -m sgl.evaluation \
-  --model-name-or-path checkpoints/qwen3-4b-sgl \
-  --output-dir outputs/qwen3-4b-sgl \
+  --model-name-or-path checkpoints/qwen2.5-7b-sgl \
+  --output-dir outputs/qwen2.5-7b-sgl \
   --benchmarks gsm8k math500 aime24 aime25 \
   --num-generations 4 \
   --temperature 0.6 \

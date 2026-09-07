@@ -23,12 +23,21 @@ from transformers import (
 from sgl.artifacts import (
     MANIFEST_FILENAME,
     MASKS_FILENAME,
+    SCHEMA_VERSION,
     MaskRecord,
     fingerprint_local_model,
     load_mask_records,
 )
 from sgl.data import (
+    ANSWER_FIELD,
+    ANSWER_LABEL,
+    ANSWER_PREFIX,
+    DATASET_FORMAT,
+    DEFAULT_SYSTEM_PROMPT,
     IGNORE_INDEX,
+    QUESTION_FIELD,
+    REASONING_FIELD,
+    THINK_PREFIX,
     SpectralDataCollator,
     native_assistant_end_token_id,
     prepare_sample,
@@ -61,8 +70,6 @@ class SpectralMaskDataset(Dataset):
             self.tokenizer,
             max_length=int(self.manifest["max_length"]),
             separator=str(self.manifest["separator"]),
-            final_marker=str(self.manifest["final_marker"]),
-            require_final_answer=True,
         )
         if prepared.input_ids_hash != record.input_ids_hash:
             raise RuntimeError(
@@ -133,6 +140,40 @@ class PerSampleMaskedTrainer(Trainer):
         ):
             loss = loss * self.args.gradient_accumulation_steps
         return (loss, outputs) if return_outputs else loss
+
+
+def validate_manifest_format(manifest: dict[str, Any]) -> None:
+    schema_version = manifest.get("schema_version")
+    if schema_version != SCHEMA_VERSION:
+        raise ValueError(
+            f"Mask manifest schema {schema_version!r} is incompatible with schema "
+            f"{SCHEMA_VERSION}; rebuild the spectral masks"
+        )
+
+    expected = {
+        "dataset_format": DATASET_FORMAT,
+        "dataset_fields": {
+            "question": QUESTION_FIELD,
+            "reasoning": REASONING_FIELD,
+            "answer": ANSWER_FIELD,
+        },
+        "system_prompt": DEFAULT_SYSTEM_PROMPT,
+        "thinking_prefix": THINK_PREFIX,
+        "answer_prefix": ANSWER_PREFIX,
+        "answer_label": ANSWER_LABEL,
+        "answer_label_policy": "prefix_if_missing",
+    }
+    mismatches = {
+        key: {"expected": value, "actual": manifest.get(key)}
+        for key, value in expected.items()
+        if manifest.get(key) != value
+    }
+    if mismatches:
+        fields = ", ".join(sorted(mismatches))
+        raise ValueError(
+            f"Mask manifest uses an incompatible s1K-1.1 format ({fields}); "
+            "rebuild the spectral masks"
+        )
 
 
 def parse_args() -> argparse.Namespace:
@@ -250,6 +291,7 @@ def _make_training_arguments(
 def run(args: argparse.Namespace) -> None:
     mask_dir = Path(args.mask_dir)
     manifest = json.loads((mask_dir / MANIFEST_FILENAME).read_text(encoding="utf-8"))
+    validate_manifest_format(manifest)
     records = load_mask_records(mask_dir / manifest.get("mask_file", MASKS_FILENAME))
     if not records:
         raise ValueError("Mask artifact contains no training samples")

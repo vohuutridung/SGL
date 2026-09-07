@@ -2,14 +2,26 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
 import torch
 import torch.nn.functional as F
 from accelerate.utils import DistributedType
 from torch import nn
 from transformers import Trainer
 
-from sgl.data import IGNORE_INDEX
-from sgl.training import PerSampleMaskedTrainer
+from sgl.artifacts import SCHEMA_VERSION
+from sgl.data import (
+    ANSWER_FIELD,
+    ANSWER_LABEL,
+    ANSWER_PREFIX,
+    DATASET_FORMAT,
+    DEFAULT_SYSTEM_PROMPT,
+    IGNORE_INDEX,
+    QUESTION_FIELD,
+    REASONING_FIELD,
+    THINK_PREFIX,
+)
+from sgl.training import PerSampleMaskedTrainer, validate_manifest_format
 
 
 class PositionLogitModel(nn.Module):
@@ -20,6 +32,39 @@ class PositionLogitModel(nn.Module):
     def forward(self, input_ids, attention_mask, use_cache):
         del input_ids, attention_mask, use_cache
         return SimpleNamespace(logits=self.logits)
+
+
+def valid_manifest_format():
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "dataset_format": DATASET_FORMAT,
+        "dataset_fields": {
+            "question": QUESTION_FIELD,
+            "reasoning": REASONING_FIELD,
+            "answer": ANSWER_FIELD,
+        },
+        "system_prompt": DEFAULT_SYSTEM_PROMPT,
+        "thinking_prefix": THINK_PREFIX,
+        "answer_prefix": ANSWER_PREFIX,
+        "answer_label": ANSWER_LABEL,
+        "answer_label_policy": "prefix_if_missing",
+    }
+
+
+def test_manifest_format_accepts_current_s1k_schema():
+    validate_manifest_format(valid_manifest_format())
+
+
+def test_manifest_format_rejects_old_schema_and_changed_format():
+    old = valid_manifest_format()
+    old["schema_version"] = 1
+    with pytest.raises(ValueError, match="rebuild the spectral masks"):
+        validate_manifest_format(old)
+
+    changed = valid_manifest_format()
+    changed["dataset_fields"] = {"question": "prompt"}
+    with pytest.raises(ValueError, match="dataset_fields"):
+        validate_manifest_format(changed)
 
 
 def test_trainer_forces_gradient_accumulation_loss_scaling(monkeypatch):

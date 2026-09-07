@@ -9,10 +9,19 @@ from typing import Any
 
 import torch
 
-DEFAULT_DATASET = "Elliott/Openr1-Math-46k-8192"
-DEFAULT_DATASET_REVISION = "bd025079093aec0409f535a5b2cae1c28019d917"
+DEFAULT_DATASET = "simplescaling/s1K-1.1"
+DEFAULT_DATASET_REVISION = "96c411f1fe4c49d20f0e2a1565f61e1a28b0b84d"
 DEFAULT_SPLIT = "train"
+DEFAULT_MAX_SAMPLES = 1_000
 DEFAULT_MAX_LENGTH = 32_768
+DEFAULT_SYSTEM_PROMPT = "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."
+DATASET_FORMAT = "simplescaling_s1k_1_1"
+QUESTION_FIELD = "question"
+REASONING_FIELD = "deepseek_thinking_trajectory"
+ANSWER_FIELD = "deepseek_attempt"
+THINK_PREFIX = "<|im_start|>think\n"
+ANSWER_PREFIX = "\n<|im_start|>answer\n"
+ANSWER_LABEL = "Answer: "
 IGNORE_INDEX = -100
 
 
@@ -130,34 +139,20 @@ def split_reasoning_steps(
     content: str,
     *,
     separator: str = "\n\n",
-    final_marker: str = "</think>",
-    require_final_answer: bool = True,
-) -> ParsedTarget:
+) -> tuple[CharStep, ...]:
     if not content:
-        raise SampleFormatError("Assistant target is empty")
+        raise SampleFormatError("Reasoning trajectory is empty")
     if not separator:
         raise ValueError("separator must not be empty")
-
-    marker_start = content.rfind(final_marker)
-    if marker_start < 0:
-        raise SampleFormatError(f"Assistant target does not contain {final_marker!r}")
-
-    marker_end = marker_start + len(final_marker)
-    final_start = marker_end
-    if content.startswith(separator, marker_end):
-        # The separator belongs to the preceding reasoning step.
-        final_start += len(separator)
-
-    final_text = content[final_start:]
-    if require_final_answer and not final_text.strip():
-        raise SampleFormatError("Assistant target has no final answer after the thinking block")
 
     reasoning_steps: list[CharStep] = []
     cursor = 0
     step_id = 0
-    while cursor < final_start:
-        separator_start = content.find(separator, cursor, final_start)
-        end = final_start if separator_start < 0 else separator_start + len(separator)
+    while cursor < len(content):
+        separator_start = content.find(separator, cursor)
+        end = len(content) if separator_start < 0 else separator_start + len(separator)
+        while end < len(content) and content.startswith(separator, end):
+            end += len(separator)
         if end <= cursor:
             raise RuntimeError("Step parser failed to make progress")
         reasoning_steps.append(CharStep(step_id=step_id, start=cursor, end=end))
@@ -165,35 +160,67 @@ def split_reasoning_steps(
         step_id += 1
 
     if not reasoning_steps:
-        raise SampleFormatError("Assistant target contains no reasoning step")
+        raise SampleFormatError("Reasoning trajectory contains no steps")
 
-    return ParsedTarget(
+    return tuple(reasoning_steps)
+
+
+def _require_nonempty_string(
+    row: Mapping[str, Any],
+    field: str,
+    *,
+    strip: bool = False,
+) -> str:
+    if field not in row:
+        raise SampleFormatError(f"Dataset row is missing required field {field!r}")
+    value = row[field]
+    if not isinstance(value, str):
+        raise SampleFormatError(f"row[{field!r}] must be a string")
+    if not value.strip():
+        raise SampleFormatError(f"row[{field!r}] must not be empty")
+    return value.strip() if strip else value
+
+
+def normalize_final_answer(answer: str) -> str:
+    answer = answer.strip()
+    return answer if "Answer:" in answer else ANSWER_LABEL + answer
+
+
+def format_s1k_example(
+    row: Mapping[str, Any],
+    *,
+    separator: str = "\n\n",
+) -> tuple[list[dict[str, str]], dict[str, str], ParsedTarget]:
+    """Map one raw s1K-1.1 row to the official Qwen reasoning format."""
+
+    question = _require_nonempty_string(row, QUESTION_FIELD)
+    reasoning = _require_nonempty_string(row, REASONING_FIELD, strip=True)
+    answer = _require_nonempty_string(row, ANSWER_FIELD, strip=True)
+    raw_steps = split_reasoning_steps(reasoning, separator=separator)
+
+    content = THINK_PREFIX + reasoning + ANSWER_PREFIX + normalize_final_answer(answer)
+    reasoning_offset = len(THINK_PREFIX)
+    reasoning_steps = tuple(
+        CharStep(
+            step_id=step.step_id,
+            start=0 if step.step_id == 0 else reasoning_offset + step.start,
+            end=reasoning_offset + step.end,
+        )
+        for step in raw_steps
+    )
+    final_start = reasoning_offset + len(reasoning)
+    parsed = ParsedTarget(
         content=content,
-        reasoning_steps=tuple(reasoning_steps),
+        reasoning_steps=reasoning_steps,
         final_start=final_start,
         final_end=len(content),
     )
-
-
-def extract_messages(row: dict[str, Any]) -> tuple[list[dict[str, str]], dict[str, str]]:
-    prompt = row.get("prompt")
-    target = row.get("target")
-    if not isinstance(prompt, list) or not prompt:
-        raise SampleFormatError("row['prompt'] must be a non-empty message list")
-    if not isinstance(target, list) or len(target) != 1:
-        raise SampleFormatError("row['target'] must contain exactly one assistant message")
-
     prompt_messages = [
-        {"role": str(message["role"]), "content": str(message["content"])}
-        for message in prompt
+        {"role": "system", "content": DEFAULT_SYSTEM_PROMPT},
+        {"role": "user", "content": question},
     ]
-    target_message = {
-        "role": str(target[0]["role"]),
-        "content": str(target[0]["content"]),
-    }
-    if target_message["role"] != "assistant":
-        raise SampleFormatError("The target message must have role='assistant'")
-    return prompt_messages, target_message
+    target_message = {"role": "assistant", "content": content}
+    return prompt_messages, target_message, parsed
 
 
 def _as_token_id_list(value: Any) -> list[int]:
@@ -287,55 +314,45 @@ def prepare_sample(
     *,
     max_length: int = DEFAULT_MAX_LENGTH,
     separator: str = "\n\n",
-    final_marker: str = "</think>",
-    require_final_answer: bool = True,
 ) -> PreparedSample:
     if max_length < 2:
         raise ValueError("max_length must be at least 2")
 
-    prompt, target = extract_messages(row)
-    parsed = split_reasoning_steps(
-        target["content"],
-        separator=separator,
-        final_marker=final_marker,
-        require_final_answer=require_final_answer,
-    )
+    prompt, target, parsed = format_s1k_example(row, separator=separator)
     rendered, input_ids, offsets = _render_with_native_template(
         tokenizer,
         [*prompt, target],
     )
     if len(input_ids) > max_length:
         # Preserve the prompt and complete final answer, then keep the longest
-        # prefix of whole reasoning steps that fits. If the removed suffix
-        # contained </think>, close the retained prefix before reattaching the
-        # final answer.
+        # prefix of whole reasoning steps that fits.
+        reasoning = _require_nonempty_string(row, REASONING_FIELD, strip=True)
+        raw_steps = split_reasoning_steps(reasoning, separator=separator)
         for kept_steps in range(len(parsed.reasoning_steps) - 1, 0, -1):
-            prefix_end = parsed.reasoning_steps[kept_steps - 1].end
-            reasoning_prefix = parsed.content[:prefix_end]
+            prefix_end = raw_steps[kept_steps - 1].end
+            reasoning_prefix = reasoning[:prefix_end]
             if reasoning_prefix.endswith(separator):
                 reasoning_prefix = reasoning_prefix[: -len(separator)]
-            truncated_content = (
-                reasoning_prefix.rstrip("\n")
-                + "\n"
-                + final_marker
-                + separator
-                + parsed.content[parsed.final_start :]
+            truncated_row = {
+                QUESTION_FIELD: row[QUESTION_FIELD],
+                REASONING_FIELD: reasoning_prefix,
+                ANSWER_FIELD: row[ANSWER_FIELD],
+            }
+            truncated_prompt, truncated_target, _ = format_s1k_example(
+                truncated_row,
+                separator=separator,
             )
-            truncated_target = {"role": "assistant", "content": truncated_content}
             _, candidate_ids, _ = _render_with_native_template(
                 tokenizer,
-                [*prompt, truncated_target],
+                [*truncated_prompt, truncated_target],
             )
             if len(candidate_ids) > max_length:
                 continue
-            truncated_row = {"prompt": prompt, "target": [truncated_target]}
             result = prepare_sample(
                 truncated_row,
                 tokenizer,
                 max_length=max_length,
                 separator=separator,
-                final_marker=final_marker,
-                require_final_answer=require_final_answer,
             )
             result.truncated = True
             return result
@@ -376,7 +393,7 @@ def prepare_sample(
     if any(not positions for positions in step_positions):
         empty = [index for index, positions in enumerate(step_positions) if not positions]
         raise SampleFormatError(f"Reasoning steps without tokens: {empty}")
-    if require_final_answer and not final_positions:
+    if not final_positions:
         raise SampleFormatError("Final answer contains no tokens")
 
     last_target_position = max(

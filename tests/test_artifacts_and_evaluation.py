@@ -11,7 +11,8 @@ from sgl.artifacts import (
     shard_path,
     summarize_records,
 )
-from sgl.evaluation import generation_eos_token_ids, grade_response
+from sgl.data import DEFAULT_SYSTEM_PROMPT
+from sgl.evaluation import _load_system_prompt, generation_eos_token_ids, grade_response
 
 
 def _record(sample_position: int, source_index: int) -> MaskRecord:
@@ -95,3 +96,8 @@ def test_generation_uses_native_turn_terminator_and_model_eos(monkeypatch):
         gold_is_latex=True,
     )
     assert correct
+
+
+def test_evaluation_uses_qwen_system_prompt_without_loading_training_dataset():
+    args = SimpleNamespace(system_prompt=None, system_prompt_file=None)
+    assert _load_system_prompt(args) == DEFAULT_SYSTEM_PROMPT

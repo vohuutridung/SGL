@@ -12,6 +12,7 @@ python -m sgl.build_masks \
 python -m sgl.training \
   --mask-dir artifacts/qwen3-0.6b-smoke \
   --output-dir checkpoints/qwen3-0.6b-smoke \
+  --model-name-or-path Qwen/Qwen3-0.6B-Base \
   --global-batch-size 4 \
   --per-device-train-batch-size 1 \
   --num-train-epochs 1

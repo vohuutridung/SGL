@@ -26,8 +26,7 @@ from sgl.artifacts import (
     iter_jsonl,
 )
 from sgl.data import (
-    DEFAULT_DATASET,
-    DEFAULT_DATASET_REVISION,
+    DEFAULT_SYSTEM_PROMPT,
     native_assistant_end_token_id,
 )
 
@@ -114,8 +113,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--trust-remote-code", action="store_true")
     parser.add_argument("--system-prompt")
     parser.add_argument("--system-prompt-file")
-    parser.add_argument("--training-dataset-name", default=DEFAULT_DATASET)
-    parser.add_argument("--training-dataset-revision", default=DEFAULT_DATASET_REVISION)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--log-every", type=int, default=10)
     return parser.parse_args()
@@ -137,17 +134,7 @@ def _load_system_prompt(args: argparse.Namespace) -> str:
     if args.system_prompt_file is not None:
         return Path(args.system_prompt_file).read_text(encoding="utf-8").strip()
 
-    streaming = load_dataset(
-        args.training_dataset_name,
-        split="train",
-        revision=args.training_dataset_revision,
-        streaming=True,
-    )
-    first_row = next(iter(streaming))
-    for message in first_row["prompt"]:
-        if message["role"] == "system":
-            return str(message["content"])
-    raise ValueError("Training dataset's first prompt has no system message")
+    return DEFAULT_SYSTEM_PROMPT
 
 
 def _initialize_output(
