@@ -12,7 +12,7 @@ from sgl.artifacts import (
     summarize_records,
 )
 from sgl.data import DEFAULT_SYSTEM_PROMPT
-from sgl.evaluation import _load_system_prompt, generation_eos_token_ids, grade_response
+from sgl.evaluation import BENCHMARKS, _load_system_prompt, generation_eos_token_ids, grade_response
 
 
 def _record(sample_position: int, source_index: int) -> MaskRecord:
@@ -101,3 +101,15 @@ def test_generation_uses_native_turn_terminator_and_model_eos(monkeypatch):
 def test_evaluation_uses_qwen_system_prompt_without_loading_training_dataset():
     args = SimpleNamespace(system_prompt=None, system_prompt_file=None)
     assert _load_system_prompt(args) == DEFAULT_SYSTEM_PROMPT
+
+
+def test_evaluation_uses_the_four_requested_benchmarks():
+    assert set(BENCHMARKS) == {"aime25", "aime24", "amc12", "math500"}
+    assert {name: spec.expected_examples for name, spec in BENCHMARKS.items()} == {
+        "aime25": 30,
+        "aime24": 30,
+        "amc12": 83,
+        "math500": 500,
+    }
+    assert BENCHMARKS["amc12"].dataset_name == "AI-MO/aimo-validation-amc"
+    assert BENCHMARKS["amc12"].gold({"answer": 142.0}) == "142"

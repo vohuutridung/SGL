@@ -210,7 +210,36 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--trust-remote-code", action="store_true")
     parser.add_argument("--resume-from-checkpoint")
+    parser.add_argument(
+        "--push-to-hub",
+        action="store_true",
+        help="Upload the final saved model to the Hugging Face Hub after training.",
+    )
+    parser.add_argument(
+        "--hub-model-id",
+        help="Destination model repository, for example username/qwen2.5-7b-sgl.",
+    )
+    parser.add_argument(
+        "--hub-private-repo",
+        action="store_true",
+        help="Create the destination Hugging Face model repository as private.",
+    )
     return parser.parse_args()
+
+
+def validate_hub_options(args: argparse.Namespace) -> None:
+    if args.push_to_hub and not args.hub_model_id:
+        raise ValueError("--hub-model-id is required with --push-to-hub")
+    if args.hub_model_id and not args.push_to_hub:
+        raise ValueError("--hub-model-id requires --push-to-hub")
+    if args.hub_private_repo and not args.push_to_hub:
+        raise ValueError("--hub-private-repo requires --push-to-hub")
+
+
+def _upload_final_model(trainer: Trainer, args: argparse.Namespace) -> Any | None:
+    if not args.push_to_hub:
+        return None
+    return trainer.push_to_hub(commit_message="Upload final SGL model after training")
 
 
 def _dtype_flags(dtype: str) -> tuple[torch.dtype, bool, bool]:
@@ -283,12 +312,18 @@ def _make_training_arguments(
     }
     if args.deepspeed:
         kwargs["deepspeed"] = args.deepspeed
+    if args.push_to_hub:
+        # Keep push_to_hub disabled in TrainingArguments so checkpoint saves stay
+        # local. The completed model is uploaded explicitly after training.
+        kwargs["hub_model_id"] = args.hub_model_id
+        kwargs["hub_private_repo"] = args.hub_private_repo
 
     supported = inspect.signature(TrainingArguments).parameters
     return TrainingArguments(**{key: value for key, value in kwargs.items() if key in supported})
 
 
 def run(args: argparse.Namespace) -> None:
+    validate_hub_options(args)
     mask_dir = Path(args.mask_dir)
     manifest = json.loads((mask_dir / MANIFEST_FILENAME).read_text(encoding="utf-8"))
     validate_manifest_format(manifest)
@@ -406,6 +441,7 @@ def run(args: argparse.Namespace) -> None:
     trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
     trainer.save_model(args.output_dir)
     tokenizer.save_pretrained(args.output_dir)
+    _upload_final_model(trainer, args)
 
 
 def main() -> None:

@@ -21,7 +21,12 @@ from sgl.data import (
     REASONING_FIELD,
     THINK_PREFIX,
 )
-from sgl.training import PerSampleMaskedTrainer, validate_manifest_format
+from sgl.training import (
+    PerSampleMaskedTrainer,
+    _upload_final_model,
+    validate_hub_options,
+    validate_manifest_format,
+)
 
 
 class PositionLogitModel(nn.Module):
@@ -65,6 +70,62 @@ def test_manifest_format_rejects_old_schema_and_changed_format():
     changed["dataset_fields"] = {"question": "prompt"}
     with pytest.raises(ValueError, match="dataset_fields"):
         validate_manifest_format(changed)
+
+
+def test_hub_upload_requires_an_explicit_destination():
+    with pytest.raises(ValueError, match="--hub-model-id"):
+        validate_hub_options(
+            SimpleNamespace(
+                push_to_hub=True,
+                hub_model_id=None,
+                hub_private_repo=False,
+            )
+        )
+
+    with pytest.raises(ValueError, match="--push-to-hub"):
+        validate_hub_options(
+            SimpleNamespace(
+                push_to_hub=False,
+                hub_model_id="user/model",
+                hub_private_repo=False,
+            )
+        )
+
+    with pytest.raises(ValueError, match="--push-to-hub"):
+        validate_hub_options(
+            SimpleNamespace(
+                push_to_hub=False,
+                hub_model_id=None,
+                hub_private_repo=True,
+            )
+        )
+
+    validate_hub_options(
+        SimpleNamespace(
+            push_to_hub=True,
+            hub_model_id="user/model",
+            hub_private_repo=True,
+        )
+    )
+
+
+def test_final_model_is_uploaded_only_when_requested():
+    class FakeTrainer:
+        def __init__(self):
+            self.messages = []
+
+        def push_to_hub(self, *, commit_message):
+            self.messages.append(commit_message)
+            return "https://huggingface.co/user/model"
+
+    trainer = FakeTrainer()
+    disabled = SimpleNamespace(push_to_hub=False)
+    enabled = SimpleNamespace(push_to_hub=True)
+
+    assert _upload_final_model(trainer, disabled) is None
+    assert trainer.messages == []
+    assert _upload_final_model(trainer, enabled).endswith("user/model")
+    assert trainer.messages == ["Upload final SGL model after training"]
 
 
 def test_trainer_forces_gradient_accumulation_loss_scaling(monkeypatch):

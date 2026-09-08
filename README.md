@@ -128,9 +128,21 @@ python -m sgl.training \
   --warmup-ratio 0.1
 ```
 
+To upload only the final model after training completes, authenticate with `hf auth login` or `HF_TOKEN` and add:
+
+```bash
+  --push-to-hub \
+  --hub-model-id YOUR_USERNAME/qwen2.5-7b-sgl
+```
+
+Add `--hub-private-repo` if the destination repository should be private.
+
 ## 3. Evaluation
 
-Supported benchmarks: GSM8K (`openai/gsm8k`), MATH-500 (`HuggingFaceH4/MATH-500`), AIME 2024 (`HuggingFaceH4/aime_2024`), AIME 2025 (`yentinglin/aime_2025`).
+Evaluation uses exactly MATH-500 (500 problems, `HuggingFaceH4/MATH-500`),
+AIME 2025 (30 problems, `yentinglin/aime_2025`), AIME 2024 (30 problems,
+`HuggingFaceH4/aime_2024`), and AMC12 (83 problems,
+`AI-MO/aimo-validation-amc`).
 
 On eight GPUs:
 
@@ -138,7 +150,7 @@ On eight GPUs:
 accelerate launch --num_processes 8 -m sgl.evaluation \
   --model-name-or-path checkpoints/qwen2.5-7b-sgl \
   --output-dir outputs/qwen2.5-7b-sgl \
-  --benchmarks gsm8k math500 aime24 aime25 \
+  --benchmarks aime25 aime24 amc12 math500 \
   --num-generations 4 \
   --temperature 0.6 \
   --top-p 0.95 \
@@ -151,7 +163,7 @@ On a single GPU:
 python -m sgl.evaluation \
   --model-name-or-path checkpoints/qwen2.5-7b-sgl \
   --output-dir outputs/qwen2.5-7b-sgl \
-  --benchmarks gsm8k math500 aime24 aime25 \
+  --benchmarks aime25 aime24 amc12 math500 \
   --num-generations 4 \
   --temperature 0.6 \
   --top-p 0.95 \
@@ -160,7 +172,7 @@ python -m sgl.evaluation \
 
 Scoring uses HuggingFace `math-verify` 0.9 conventions:
 
-- expression extraction for GSM8K and AIME gold answers;
+- expression extraction for AIME and AMC12 gold answers;
 - LaTeX extraction for MATH-500 gold answers;
 - boxed-LaTeX extraction followed by expression fallback for predictions.
 

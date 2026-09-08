@@ -43,18 +43,10 @@ class BenchmarkSpec:
     question_field: str
     gold: Callable[[dict[str, Any]], str]
     gold_is_latex: bool
+    expected_examples: int
 
 
 BENCHMARKS: dict[str, BenchmarkSpec] = {
-    "gsm8k": BenchmarkSpec(
-        dataset_name="openai/gsm8k",
-        revision="740312add88f781978c0658806c59bc2815b9866",
-        config_name="main",
-        split="test",
-        question_field="question",
-        gold=lambda row: str(row["answer"]).split("####")[-1].strip(),
-        gold_is_latex=False,
-    ),
     "math500": BenchmarkSpec(
         dataset_name="HuggingFaceH4/MATH-500",
         revision="6e4ed1a2a79af7d8630a6b768ec859cb5af4d3be",
@@ -63,6 +55,7 @@ BENCHMARKS: dict[str, BenchmarkSpec] = {
         question_field="problem",
         gold=lambda row: str(row["answer"]),
         gold_is_latex=True,
+        expected_examples=500,
     ),
     "aime24": BenchmarkSpec(
         dataset_name="HuggingFaceH4/aime_2024",
@@ -72,6 +65,7 @@ BENCHMARKS: dict[str, BenchmarkSpec] = {
         question_field="problem",
         gold=lambda row: str(row["answer"]),
         gold_is_latex=False,
+        expected_examples=30,
     ),
     "aime25": BenchmarkSpec(
         dataset_name="yentinglin/aime_2025",
@@ -81,6 +75,17 @@ BENCHMARKS: dict[str, BenchmarkSpec] = {
         question_field="problem",
         gold=lambda row: str(row["answer"]),
         gold_is_latex=False,
+        expected_examples=30,
+    ),
+    "amc12": BenchmarkSpec(
+        dataset_name="AI-MO/aimo-validation-amc",
+        revision="69d78a4a2c840e82d69af6bc742bda09005f6316",
+        config_name="default",
+        split="train",
+        question_field="problem",
+        gold=lambda row: str(int(row["answer"])),
+        gold_is_latex=False,
+        expected_examples=83,
     ),
 }
 
@@ -163,6 +168,9 @@ def _initialize_output(
             "benchmarks": args.benchmarks,
             "benchmark_revisions": {
                 name: BENCHMARKS[name].revision for name in args.benchmarks
+            },
+            "benchmark_expected_examples": {
+                name: BENCHMARKS[name].expected_examples for name in args.benchmarks
             },
             "num_generations": args.num_generations,
             "temperature": args.temperature,
@@ -358,6 +366,11 @@ def _evaluate_benchmark(
         split=spec.split,
         revision=spec.revision,
     )
+    if len(dataset) != spec.expected_examples:
+        raise ValueError(
+            f"{benchmark} at pinned revision {spec.revision} has {len(dataset)} "
+            f"examples; expected {spec.expected_examples}"
+        )
     if args.limit is not None:
         dataset = dataset.select(range(min(args.limit, len(dataset))))
 

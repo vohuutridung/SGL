@@ -20,7 +20,7 @@ python -m sgl.training \
 python -m sgl.evaluation \
   --model-name-or-path checkpoints/qwen3-0.6b-smoke \
   --output-dir outputs/qwen3-0.6b-smoke \
-  --benchmarks gsm8k \
+  --benchmarks aime24 \
   --limit 8 \
   --num-generations 2 \
   --max-new-tokens 512
