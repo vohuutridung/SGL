@@ -17,8 +17,7 @@ This repository implements the primary method only:
 
 ## Training data format
 
-Training uses all 1,000 rows from `simplescaling/s1K-1.1` at the pinned
-revision recorded in the mask manifest. Each raw row is mapped as follows:
+Training uses all 1,000 rows from `simplescaling/s1K-1.1`. Each raw row is mapped as follows:
 
 - `question` becomes the user message.
 - `deepseek_thinking_trajectory` becomes the reasoning trajectory and is split
@@ -139,7 +138,7 @@ Add `--hub-private-repo` if the destination repository should be private.
 
 ## 3. Evaluation
 
-Evaluation uses exactly MATH-500 (500 problems, `HuggingFaceH4/MATH-500`),
+Evaluation uses MATH-500 (500 problems, `HuggingFaceH4/MATH-500`),
 AIME 2025 (30 problems, `yentinglin/aime_2025`), AIME 2024 (30 problems,
 `HuggingFaceH4/aime_2024`), and AMC12 (83 problems,
 `AI-MO/aimo-validation-amc`).
