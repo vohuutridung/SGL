@@ -1,4 +1,4 @@
-- End-to-end run (1 GPU)
+# End-to-end run (1GPU)
 python -m pip install -e ".[train,dev]"
 
 # Authenticate once before training so the final model can be uploaded.
@@ -25,6 +25,7 @@ python -m sgl.training \
   --learning-rate 5e-5 \
   --min-learning-rate 1e-5 \
   --warmup-ratio 0.1 \
+  --gradient-checkpointing \
   --push-to-hub \
   --hub-model-id YOUR_USERNAME/qwen2.5-7b-sgl
 
@@ -38,7 +39,7 @@ python -m sgl.evaluation \
   --max-new-tokens 32768
 
 
-- Smoke test (run A100 40GB)
+# Smoke test (run A100 40GB)
 python -m pip install -e ".[dev]"
 
 python -m sgl.build_masks \
