@@ -19,6 +19,8 @@ MAX_LENGTH="${MAX_LENGTH:-32768}"
 NUM_TRAIN_EPOCHS="${NUM_TRAIN_EPOCHS:-6}"
 LEARNING_RATE="${LEARNING_RATE:-5e-5}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-4096}"
+GLOBAL_BATCH_SIZE="${GLOBAL_BATCH_SIZE:-16}"
+PER_DEVICE_TRAIN_BATCH_SIZE="${PER_DEVICE_TRAIN_BATCH_SIZE:-2}"
 
 echo "[1/4] Installing the project and development dependencies"
 "$PYTHON_BIN" -m pip install -e ".[dev]"
@@ -41,8 +43,8 @@ echo "[3/4] Training the LoRA adapter"
   --mask-dir "$MASK_DIR" \
   --output-dir "$CHECKPOINT_DIR" \
   --model-name-or-path "$MODEL_NAME" \
-  --global-batch-size 32 \
-  --per-device-train-batch-size 1 \
+  --global-batch-size "$GLOBAL_BATCH_SIZE" \
+  --per-device-train-batch-size "$PER_DEVICE_TRAIN_BATCH_SIZE" \
   --num-train-epochs "$NUM_TRAIN_EPOCHS" \
   --learning-rate "$LEARNING_RATE" \
   --warmup-ratio 0.1 \

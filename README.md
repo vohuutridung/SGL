@@ -111,15 +111,18 @@ torchrun --nproc_per_node 8 -m sgl.training \
   --deepspeed configs/deepspeed_zero3.json
 ```
 
-On a single GPU, use a microbatch of one and 32 gradient-accumulation steps:
+On a single NVIDIA B200 180 GB GPU, use a microbatch of two and eight
+gradient-accumulation steps, for an effective batch size of 16. If an unusually
+long sample causes an out-of-memory error, reduce the microbatch to one and keep
+the global batch size at 16.
 
 ```bash
 python -m sgl.training \
   --mask-dir artifacts/qwen2.5-7b \
   --output-dir checkpoints/qwen2.5-7b-sgl \
   --model-name-or-path Qwen/Qwen2.5-7B-Instruct \
-  --global-batch-size 32 \
-  --per-device-train-batch-size 32 \
+  --global-batch-size 16 \
+  --per-device-train-batch-size 2 \
   --num-train-epochs 6 \
   --learning-rate 5e-5 \
   --warmup-ratio 0.1
