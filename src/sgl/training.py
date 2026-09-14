@@ -11,6 +11,7 @@ import torch
 import torch.nn.functional as F
 from accelerate.utils import DistributedType
 from datasets import load_dataset
+from peft import LoraConfig, TaskType, get_peft_model
 from torch.utils.data import Dataset
 from transformers import (
     AutoModelForCausalLM,
@@ -41,6 +42,16 @@ from sgl.data import (
     SpectralDataCollator,
     native_assistant_end_token_id,
     prepare_sample,
+)
+
+LORA_TARGET_MODULES = (
+    "q_proj",
+    "k_proj",
+    "v_proj",
+    "o_proj",
+    "gate_proj",
+    "up_proj",
+    "down_proj",
 )
 
 
@@ -177,7 +188,7 @@ def validate_manifest_format(manifest: dict[str, Any]) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Full fine-tuning with fixed SGL masks.")
+    parser = argparse.ArgumentParser(description="LoRA fine-tuning with fixed SGL masks.")
     parser.add_argument("--mask-dir", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--model-name-or-path")
@@ -186,7 +197,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--global-batch-size", type=int, default=32)
     parser.add_argument("--num-train-epochs", type=float, default=6.0)
     parser.add_argument("--learning-rate", type=float, default=5e-5)
-    parser.add_argument("--min-learning-rate", type=float, default=1e-5)
     parser.add_argument("--warmup-ratio", type=float, default=0.1)
     parser.add_argument("--weight-decay", type=float, default=0.0)
     parser.add_argument("--adam-beta1", type=float, default=0.9)
@@ -197,6 +207,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--attn-implementation", default="sdpa")
     parser.add_argument("--optim", default="adamw_torch")
     parser.add_argument("--deepspeed")
+    parser.add_argument("--lora-rank", type=int, default=16)
+    parser.add_argument("--lora-alpha", type=int, default=16)
+    parser.add_argument("--lora-dropout", type=float, default=0.05)
+    parser.add_argument(
+        "--lora-target-modules",
+        nargs="+",
+        default=list(LORA_TARGET_MODULES),
+    )
     parser.add_argument(
         "--gradient-checkpointing",
         action=argparse.BooleanOptionalAction,
@@ -210,36 +228,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--trust-remote-code", action="store_true")
     parser.add_argument("--resume-from-checkpoint")
-    parser.add_argument(
-        "--push-to-hub",
-        action="store_true",
-        help="Upload the final saved model to the Hugging Face Hub after training.",
-    )
-    parser.add_argument(
-        "--hub-model-id",
-        help="Destination model repository, for example username/qwen2.5-7b-sgl.",
-    )
-    parser.add_argument(
-        "--hub-private-repo",
-        action="store_true",
-        help="Create the destination Hugging Face model repository as private.",
-    )
     return parser.parse_args()
-
-
-def validate_hub_options(args: argparse.Namespace) -> None:
-    if args.push_to_hub and not args.hub_model_id:
-        raise ValueError("--hub-model-id is required with --push-to-hub")
-    if args.hub_model_id and not args.push_to_hub:
-        raise ValueError("--hub-model-id requires --push-to-hub")
-    if args.hub_private_repo and not args.push_to_hub:
-        raise ValueError("--hub-private-repo requires --push-to-hub")
-
-
-def _upload_final_model(trainer: Trainer, args: argparse.Namespace) -> Any | None:
-    if not args.push_to_hub:
-        return None
-    return trainer.push_to_hub(commit_message="Upload final SGL model after training")
 
 
 def _dtype_flags(dtype: str) -> tuple[torch.dtype, bool, bool]:
@@ -278,8 +267,7 @@ def _make_training_arguments(
         "gradient_accumulation_steps": gradient_accumulation_steps,
         "num_train_epochs": args.num_train_epochs,
         "learning_rate": args.learning_rate,
-        "lr_scheduler_type": "cosine_with_min_lr",
-        "lr_scheduler_kwargs": {"min_lr": args.min_learning_rate},
+        "lr_scheduler_type": "cosine",
         "warmup_ratio": args.warmup_ratio,
         "weight_decay": args.weight_decay,
         "adam_beta1": args.adam_beta1,
@@ -312,18 +300,12 @@ def _make_training_arguments(
     }
     if args.deepspeed:
         kwargs["deepspeed"] = args.deepspeed
-    if args.push_to_hub:
-        # Keep push_to_hub disabled in TrainingArguments so checkpoint saves stay
-        # local. The completed model is uploaded explicitly after training.
-        kwargs["hub_model_id"] = args.hub_model_id
-        kwargs["hub_private_repo"] = args.hub_private_repo
 
     supported = inspect.signature(TrainingArguments).parameters
     return TrainingArguments(**{key: value for key, value in kwargs.items() if key in supported})
 
 
 def run(args: argparse.Namespace) -> None:
-    validate_hub_options(args)
     mask_dir = Path(args.mask_dir)
     manifest = json.loads((mask_dir / MANIFEST_FILENAME).read_text(encoding="utf-8"))
     validate_manifest_format(manifest)
@@ -407,10 +389,21 @@ def run(args: argparse.Namespace) -> None:
         low_cpu_mem_usage=True,
     )
     model.config.use_cache = False
+    model = get_peft_model(
+        model,
+        LoraConfig(
+            task_type=TaskType.CAUSAL_LM,
+            r=args.lora_rank,
+            lora_alpha=args.lora_alpha,
+            lora_dropout=args.lora_dropout,
+            target_modules=args.lora_target_modules,
+            bias="none",
+        ),
+    )
     configured_eos = getattr(model.generation_config, "eos_token_id", None)
     eos_token_ids = (
         list(configured_eos)
-        if isinstance(configured_eos, (list, tuple))
+        if isinstance(configured_eos, list | tuple)
         else [configured_eos]
         if configured_eos is not None
         else []
@@ -441,7 +434,6 @@ def run(args: argparse.Namespace) -> None:
     trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
     trainer.save_model(args.output_dir)
     tokenizer.save_pretrained(args.output_dir)
-    _upload_final_model(trainer, args)
 
 
 def main() -> None:

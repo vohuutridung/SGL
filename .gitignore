@@ -221,5 +221,4 @@ __marimo__/
 artifacts/
 checkpoints/
 outputs/
-wandb/
 runs/

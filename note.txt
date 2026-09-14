@@ -1,13 +1,11 @@
 # End-to-end run (1GPU)
 python -m pip install -e ".[train,dev]"
 
-# Authenticate once before training so the final model can be uploaded.
-hf auth login
-
 python -m sgl.build_masks \
   --model-name-or-path Qwen/Qwen2.5-7B-Instruct \
   --output-dir artifacts/qwen2.5-7b \
   --max-samples 1000 \
+  --max-length 32768 \
   --rank-threshold 0.95 \
   --selection-threshold 0.8 \
   --svd-device cuda \
@@ -23,11 +21,11 @@ python -m sgl.training \
   --per-device-train-batch-size 1 \
   --num-train-epochs 6 \
   --learning-rate 5e-5 \
-  --min-learning-rate 1e-5 \
   --warmup-ratio 0.1 \
   --gradient-checkpointing \
-  --push-to-hub \
-  --hub-model-id YOUR_USERNAME/qwen2.5-7b-sgl
+  --lora-rank 16 \
+  --lora-alpha 16 \
+  --lora-dropout 0.05
 
 python -m sgl.evaluation \
   --model-name-or-path checkpoints/qwen2.5-7b-sgl \
@@ -36,7 +34,7 @@ python -m sgl.evaluation \
   --num-generations 4 \
   --temperature 0.6 \
   --top-p 0.95 \
-  --max-new-tokens 32768
+  --max-new-tokens 4096
 
 
 # Smoke test (run A100 40GB)

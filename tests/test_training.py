@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -22,9 +23,9 @@ from sgl.data import (
     THINK_PREFIX,
 )
 from sgl.training import (
+    LORA_TARGET_MODULES,
     PerSampleMaskedTrainer,
-    _upload_final_model,
-    validate_hub_options,
+    parse_args,
     validate_manifest_format,
 )
 
@@ -72,60 +73,23 @@ def test_manifest_format_rejects_old_schema_and_changed_format():
         validate_manifest_format(changed)
 
 
-def test_hub_upload_requires_an_explicit_destination():
-    with pytest.raises(ValueError, match="--hub-model-id"):
-        validate_hub_options(
-            SimpleNamespace(
-                push_to_hub=True,
-                hub_model_id=None,
-                hub_private_repo=False,
-            )
-        )
-
-    with pytest.raises(ValueError, match="--push-to-hub"):
-        validate_hub_options(
-            SimpleNamespace(
-                push_to_hub=False,
-                hub_model_id="user/model",
-                hub_private_repo=False,
-            )
-        )
-
-    with pytest.raises(ValueError, match="--push-to-hub"):
-        validate_hub_options(
-            SimpleNamespace(
-                push_to_hub=False,
-                hub_model_id=None,
-                hub_private_repo=True,
-            )
-        )
-
-    validate_hub_options(
-        SimpleNamespace(
-            push_to_hub=True,
-            hub_model_id="user/model",
-            hub_private_repo=True,
-        )
+def test_training_defaults_use_requested_lora_recipe(monkeypatch):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["sgl-train", "--mask-dir", "masks", "--output-dir", "output"],
     )
+    args = parse_args()
 
-
-def test_final_model_is_uploaded_only_when_requested():
-    class FakeTrainer:
-        def __init__(self):
-            self.messages = []
-
-        def push_to_hub(self, *, commit_message):
-            self.messages.append(commit_message)
-            return "https://huggingface.co/user/model"
-
-    trainer = FakeTrainer()
-    disabled = SimpleNamespace(push_to_hub=False)
-    enabled = SimpleNamespace(push_to_hub=True)
-
-    assert _upload_final_model(trainer, disabled) is None
-    assert trainer.messages == []
-    assert _upload_final_model(trainer, enabled).endswith("user/model")
-    assert trainer.messages == ["Upload final SGL model after training"]
+    assert args.lora_rank == 16
+    assert args.lora_alpha == 16
+    assert args.lora_dropout == 0.05
+    assert tuple(args.lora_target_modules) == LORA_TARGET_MODULES
+    assert args.global_batch_size == 32
+    assert args.optim == "adamw_torch"
+    assert (args.adam_beta1, args.adam_beta2, args.adam_epsilon) == (0.9, 0.999, 1e-8)
+    assert args.weight_decay == 0.0
+    assert args.warmup_ratio == 0.1
 
 
 def test_trainer_forces_gradient_accumulation_loss_scaling(monkeypatch):

@@ -12,7 +12,7 @@ This repository implements the primary method only:
 5. Compute equation (7), the mean truncated leverage score for each reasoning step.
 6. Select the smallest stable, score-sorted step prefix containing 80% of the
    total step strength.
-7. Full SFT on the complete sequence while masking the local losses of
+7. LoRA SFT on the complete sequence while masking the local losses of
    unselected reasoning steps.
 
 ## Training data format
@@ -40,7 +40,7 @@ Python 3.10 or newer is required. `transformers==5.4.0` and `accelerate==1.13.0`
 python -m pip install -e ".[dev]"
 ```
 
-For multi-GPU ZeRO-3 full fine-tuning:
+For optional multi-GPU ZeRO-3 LoRA fine-tuning:
 
 ```bash
 python -m pip install -e ".[train,dev]"
@@ -92,11 +92,11 @@ The output directory contains:
 - `manifest.json`: revisions, policies, software versions, and retention
   summary.
 
-## 2. Full fine-tuning
+## 2. LoRA fine-tuning
 
 The example below gives a global batch size of 32 automatically. With eight
 processes and per-device batch size one, gradient accumulation is four.
-`--deepspeed configs/deepspeed_zero3.json` is for multi-GPU full SFT.
+`--deepspeed configs/deepspeed_zero3.json` is for multi-GPU training.
 
 ```bash
 torchrun --nproc_per_node 8 -m sgl.training \
@@ -107,12 +107,11 @@ torchrun --nproc_per_node 8 -m sgl.training \
   --per-device-train-batch-size 1 \
   --num-train-epochs 6 \
   --learning-rate 5e-5 \
-  --min-learning-rate 1e-5 \
   --warmup-ratio 0.1 \
   --deepspeed configs/deepspeed_zero3.json
 ```
 
-On a single GPU, run this. You can reduce per-device-train-batch-size if OOM:
+On a single GPU, use a microbatch of one and 32 gradient-accumulation steps:
 
 ```bash
 python -m sgl.training \
@@ -123,18 +122,14 @@ python -m sgl.training \
   --per-device-train-batch-size 32 \
   --num-train-epochs 6 \
   --learning-rate 5e-5 \
-  --min-learning-rate 1e-5 \
   --warmup-ratio 0.1
 ```
 
-To upload only the final model after training completes, authenticate with `hf auth login` or `HF_TOKEN` and add:
-
-```bash
-  --push-to-hub \
-  --hub-model-id YOUR_USERNAME/qwen2.5-7b-sgl
-```
-
-Add `--hub-private-repo` if the destination repository should be private.
+The training recipe uses LoRA rank 16, alpha 16, dropout 0.05, and targets
+`q_proj`, `k_proj`, `v_proj`, `o_proj`, `gate_proj`, `up_proj`, and
+`down_proj`. It uses AdamW with betas `(0.9, 0.999)`, epsilon `1e-8`, no
+weight decay, and a cosine `LambdaLR` schedule with a 0.1 warmup ratio.
+Artifacts and checkpoints are saved only to local paths.
 
 ## 3. Evaluation
 

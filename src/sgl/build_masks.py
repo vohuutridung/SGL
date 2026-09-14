@@ -13,7 +13,7 @@ from typing import Any
 import torch
 from accelerate import Accelerator
 from datasets import load_dataset
-from huggingface_hub import HfApi
+from huggingface_hub import dataset_info, model_info
 from transformers import AutoModelForCausalLM, AutoTokenizer, set_seed
 
 from sgl.artifacts import (
@@ -137,17 +137,16 @@ def _resolve_run_revisions(args: argparse.Namespace) -> tuple[str | None, str | 
             existing.get("resolved_dataset_revision"),
         )
 
-    api = HfApi()
     resolved_model_revision = None
     if not Path(args.model_name_or_path).is_dir():
-        resolved_model_revision = api.model_info(
+        resolved_model_revision = model_info(
             args.model_name_or_path,
             revision=args.model_revision,
         ).sha
 
     resolved_dataset_revision = None
     if not Path(args.dataset_name).exists():
-        resolved_dataset_revision = api.dataset_info(
+        resolved_dataset_revision = dataset_info(
             args.dataset_name,
             revision=args.dataset_revision,
         ).sha
