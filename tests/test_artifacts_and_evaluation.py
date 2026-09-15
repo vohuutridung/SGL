@@ -12,7 +12,14 @@ from sgl.artifacts import (
     summarize_records,
 )
 from sgl.data import DEFAULT_SYSTEM_PROMPT
-from sgl.evaluation import BENCHMARKS, _load_system_prompt, generation_eos_token_ids, grade_response
+from sgl.evaluation import (
+    BENCHMARKS,
+    _load_system_prompt,
+    estimate_pass_at_k,
+    generation_eos_token_ids,
+    grade_response,
+    mean_pass_at_k,
+)
 
 
 def _record(sample_position: int, source_index: int) -> MaskRecord:
@@ -113,3 +120,14 @@ def test_evaluation_uses_the_four_requested_benchmarks():
     }
     assert BENCHMARKS["amc12"].dataset_name == "AI-MO/aimo-validation-amc"
     assert BENCHMARKS["amc12"].gold({"answer": 142.0}) == "142"
+
+
+def test_unbiased_pass_at_3():
+    # With n=4, c=1: pass@3 = 1 - C(3,3)/C(4,3) = 1 - 1/4 = 0.75
+    assert estimate_pass_at_k(4, 1, 3) == 0.75
+    assert estimate_pass_at_k(4, 0, 3) == 0.0
+    assert estimate_pass_at_k(4, 2, 3) == 1.0
+    assert mean_pass_at_k([[True, False, False, False], [False, False, False, False]], 3) == (
+        0.75 + 0.0
+    ) / 2
+    assert mean_pass_at_k([[True, False]], 3) is None

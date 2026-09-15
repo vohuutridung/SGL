@@ -194,7 +194,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-name-or-path")
     parser.add_argument("--allow-model-path-override", action="store_true")
     parser.add_argument("--per-device-train-batch-size", type=int, default=2)
-    parser.add_argument("--global-batch-size", type=int, default=16)
+    parser.add_argument("--global-batch-size", type=int, default=8)
     parser.add_argument("--num-train-epochs", type=float, default=6.0)
     parser.add_argument("--learning-rate", type=float, default=5e-5)
     parser.add_argument("--warmup-ratio", type=float, default=0.1)

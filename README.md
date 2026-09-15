@@ -111,17 +111,17 @@ torchrun --nproc_per_node 8 -m sgl.training \
   --deepspeed configs/deepspeed_zero3.json
 ```
 
-On a single NVIDIA B200 180 GB GPU, use a microbatch of two and eight
-gradient-accumulation steps, for an effective batch size of 16. If an unusually
+On a single NVIDIA B200 180 GB GPU, use a microbatch of two and four
+gradient-accumulation steps, for an effective batch size of 8. If an unusually
 long sample causes an out-of-memory error, reduce the microbatch to one and keep
-the global batch size at 16.
+the global batch size at 8.
 
 ```bash
 python -m sgl.training \
   --mask-dir artifacts/qwen2.5-7b \
   --output-dir checkpoints/qwen2.5-7b-sgl \
   --model-name-or-path Qwen/Qwen2.5-7B-Instruct \
-  --global-batch-size 16 \
+  --global-batch-size 8 \
   --per-device-train-batch-size 2 \
   --num-train-epochs 6 \
   --learning-rate 5e-5 \
@@ -173,8 +173,9 @@ Scoring uses HuggingFace `math-verify` 0.9 conventions:
 - LaTeX extraction for MATH-500 gold answers;
 - boxed-LaTeX extraction followed by expression fallback for predictions.
 
-Reported accuracy is mean pass@1 over K independent generations:
+Reported metrics:
 
-```text
-sum(correct generation indicators) / (problems * K)
-```
+- **pass@1**: mean accuracy over K independent generations
+  `sum(correct) / (problems * K)`
+- **pass@3**: unbiased estimator averaged over problems (needs `K >= 3`, default is 4)
+  `1 - C(n - c, 3) / C(n, 3)` per problem, then mean

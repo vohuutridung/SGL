@@ -5,8 +5,9 @@ import hashlib
 import importlib.metadata
 import json
 import logging
+import math
 import os
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -90,9 +91,40 @@ BENCHMARKS: dict[str, BenchmarkSpec] = {
 }
 
 
+def estimate_pass_at_k(n: int, c: int, k: int) -> float:
+    """Unbiased pass@k estimator from n samples with c correct (Codex / HumanEval)."""
+    if n <= 0:
+        raise ValueError("n must be positive")
+    if c < 0 or c > n:
+        raise ValueError("c must be in [0, n]")
+    if k <= 0:
+        raise ValueError("k must be positive")
+    if k > n:
+        raise ValueError(f"pass@{k} requires at least {k} generations, got n={n}")
+    if n - c < k:
+        return 1.0
+    return 1.0 - math.comb(n - c, k) / math.comb(n, k)
+
+
+def mean_pass_at_k(correct_lists: Sequence[Sequence[bool]], k: int) -> float | None:
+    """Mean unbiased pass@k over problems. Returns None if any problem has n < k."""
+    if not correct_lists:
+        return 0.0
+    scores: list[float] = []
+    for correct in correct_lists:
+        n = len(correct)
+        if n < k:
+            return None
+        scores.append(estimate_pass_at_k(n, sum(bool(x) for x in correct), k))
+    return sum(scores) / len(scores)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Evaluate SGL checkpoints with mean pass@1 accuracy over four generations."
+        description=(
+            "Evaluate SGL checkpoints with mean pass@1 and pass@3 "
+            "(unbiased) over independent generations."
+        )
     )
     parser.add_argument("--model-name-or-path", required=True)
     parser.add_argument("--model-revision", default="main")
@@ -430,6 +462,8 @@ def _evaluate_benchmark(
                 extracted.append(None)
                 errors.append(repr(error))
 
+        n = len(correct)
+        c = sum(correct)
         append_jsonl(
             shard,
             {
@@ -441,7 +475,10 @@ def _evaluate_benchmark(
                 "correct": correct,
                 "extracted": extracted,
                 "errors": errors,
-                "pass_at_1_over_generations": sum(correct) / len(correct),
+                "pass_at_1_over_generations": c / n,
+                "pass_at_3": (
+                    estimate_pass_at_k(n, c, 3) if n >= 3 else None
+                ),
             },
         )
         local_count += 1
@@ -460,6 +497,7 @@ def _evaluate_benchmark(
     rows = _merge_benchmark_shards(output_dir, benchmark, accelerator.num_processes)
     total_generations = sum(len(row["correct"]) for row in rows)
     correct_generations = sum(sum(row["correct"]) for row in rows)
+    correct_lists = [row["correct"] for row in rows]
     return {
         "benchmark": benchmark,
         "problems": len(rows),
@@ -469,6 +507,7 @@ def _evaluate_benchmark(
         "pass_at_1_accuracy": (
             correct_generations / total_generations if total_generations else 0.0
         ),
+        "pass_at_3_accuracy": mean_pass_at_k(correct_lists, 3),
         "dataset_name": spec.dataset_name,
         "dataset_revision": spec.revision,
         "dataset_config": spec.config_name,
@@ -551,7 +590,10 @@ def run(args: argparse.Namespace) -> None:
                 "num_generations": args.num_generations,
                 "eos_token_ids": eos_token_ids,
                 "max_context_length": max_context_length,
-                "metric": "mean pass@1 accuracy over independent generations",
+                "metric": (
+                    "mean pass@1 over independent generations; "
+                    "unbiased pass@3 (requires --num-generations >= 3)"
+                ),
                 "benchmarks": summaries,
             },
         )

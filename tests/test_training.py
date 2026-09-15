@@ -85,7 +85,7 @@ def test_training_defaults_use_requested_lora_recipe(monkeypatch):
     assert args.lora_alpha == 16
     assert args.lora_dropout == 0.05
     assert tuple(args.lora_target_modules) == LORA_TARGET_MODULES
-    assert args.global_batch_size == 16
+    assert args.global_batch_size == 8
     assert args.per_device_train_batch_size == 2
     assert args.optim == "adamw_torch"
     assert (args.adam_beta1, args.adam_beta2, args.adam_epsilon) == (0.9, 0.999, 1e-8)
